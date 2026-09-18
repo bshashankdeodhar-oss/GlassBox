@@ -1,0 +1,197 @@
+@charset "UTF-8";
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #000000;
+  --fg: #ffffff;
+  --accent-blue: #52a8ff;
+  --accent-green: #62c073;
+  --accent-rose: #f43f5e;
+  --accent-amber: #f59e0b;
+  --text-muted: #999999;
+  --card-bg: #0a0a0a;
+  --border-ring: rgba(255, 255, 255, 0.145);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #000000;
+  color: #ffffff;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-serif-instrument {
+  font-family: 'Instrument Serif', Georgia, serif;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ==========================================================================
+   LIQUID GLASS CSS SPECIFICATION (Superdesign Observe Spec)
+   ========================================================================== */
+
+.liquid-glass {
+  background: rgba(0, 0, 0, 0.35);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  position: relative;
+  overflow: hidden;
+}
+
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 20%,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0.15) 80%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.liquid-glass-circle {
+  background: rgba(0, 0, 0, 0.20);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  position: relative;
+  overflow: hidden;
+}
+
+.liquid-glass-circle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.22) 30%,
+    rgba(255, 255, 255, 0.16) 50%,
+    rgba(255, 255, 255, 0.22) 70%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   DARK TECH SPECIFICATION: Square Brutalist Buttons & Status Chips
+   ========================================================================== */
+
+.btn-square {
+  border-radius: 0px !important;
+  background: #ffffff;
+  color: #121212;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-square:hover {
+  background: #e5e5e5;
+  transform: translateY(-1px);
+}
+
+.btn-square-outline {
+  border-radius: 0px !important;
+  background: transparent;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-square-outline:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Status Chip (v-chip) - 100px radius pill */
+.v-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #1f1f1f;
+  border-radius: 100px;
+  padding: 3px 10px;
+  gap: 6px;
+  font-size: 11px;
+  color: #999999;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.v-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  shrink-0: 0;
+}
+
+.v-chip-pass .v-chip-dot { background: #62c073; box-shadow: 0 0 8px rgba(98, 192, 115, 0.5); }
+.v-chip-active .v-chip-dot { background: #52a8ff; box-shadow: 0 0 8px rgba(82, 168, 255, 0.5); }
+.v-chip-warn .v-chip-dot { background: #f59e0b; box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); }
+.v-chip-fail .v-chip-dot { background: #f43f5e; box-shadow: 0 0 8px rgba(244, 63, 94, 0.5); }
+
+/* Text Shadows for High Legibility Over Background Video */
+.hero-text-shadow {
+  text-shadow: 0 0 72px rgba(0, 0, 0, 0.75), 0 4px 28px rgba(0, 0, 0, 0.55);
+}
+
+.subline-text-shadow {
+  text-shadow: 0 0 30px rgba(0, 0, 0, 0.65), 0 1px 10px rgba(0, 0, 0, 0.45);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.4);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
