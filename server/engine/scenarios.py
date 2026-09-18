@@ -45,6 +45,7 @@ class ScenarioManager:
             session_id=session_id,
             title="Clean Run: TechNova Corporate Due Diligence",
             scenario="clean_due_diligence",
+            model_name="gemini-3.6-flash",
         )
         return self.agent.execute_workflow(
             session_id=session_id,
@@ -58,6 +59,7 @@ class ScenarioManager:
             session_id=session_id,
             title="Failure Case & Autopsy: Payload Bloat Intercept & Self-Heal",
             scenario="failure_case_autopsy",
+            model_name="gemini-3.6-flash",
         )
         return self.agent.execute_workflow(
             session_id=session_id,

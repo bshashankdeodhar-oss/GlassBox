@@ -20,6 +20,7 @@ from .models import (
 
 # Model pricing table per 1M tokens (USD)
 PRICING_TABLE = {
+    "gemini-3.6-flash": {"input_per_million": 0.10, "output_per_million": 0.40},
     "gemini-1.5-pro": {"input_per_million": 3.50, "output_per_million": 10.50},
     "gemini-1.5-flash": {"input_per_million": 0.075, "output_per_million": 0.30},
     "gpt-4o": {"input_per_million": 2.50, "output_per_million": 10.00},
@@ -87,6 +88,8 @@ class Tracer:
         autopsy: Optional[FailureAutopsy] = None,
         latency_ms: float = 0.0,
         living_memory: Optional[Dict[str, Any]] = None,
+        prompt_tokens_override: Optional[int] = None,
+        completion_tokens_override: Optional[int] = None,
     ) -> StepRecord:
         """Records an immutable step into the session trace."""
         session = self.active_sessions.get(session_id)
@@ -96,8 +99,8 @@ class Tracer:
         step_number = len(session.steps) + 1
         step_id = f"{session_id}_step_{step_number}"
 
-        prompt_tokens = estimate_tokens(raw_prompt or "")
-        completion_tokens = estimate_tokens(raw_response or "")
+        prompt_tokens = prompt_tokens_override if prompt_tokens_override is not None else estimate_tokens(raw_prompt or "")
+        completion_tokens = completion_tokens_override if completion_tokens_override is not None else estimate_tokens(raw_response or "")
         step_cost = self.calculate_cost(
             session.model_name, prompt_tokens, completion_tokens
         )

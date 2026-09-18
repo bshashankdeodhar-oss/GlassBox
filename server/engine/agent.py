@@ -1,17 +1,27 @@
 """
-GlassBox Agent Orchestrator.
+GlassBox Agent Orchestrator — Real Gemini API Integration.
 Coordinates multi-step tool execution, active context engineering,
 span tracing, failure interception, and self-healing.
+Every LLM call goes through the real Gemini 3.6 Flash API.
 """
 
 import time
-import os
 import json
 from typing import Dict, Any, List, Optional
 from .models import StepStatus, ToolCallRecord, ContextBreakdown, FailureAutopsy
 from .tracer import Tracer, global_tracer, estimate_tokens
 from .context_engine import ContextEngine, global_context_engine
 from .tools import ToolRegistry, global_tools
+from .llm import LLMClient, global_llm
+
+
+SYSTEM_PROMPT = (
+    "You are GlassBox Financial & Due Diligence Copilot. "
+    "You investigate corporate financial metrics, acquisitions, and performance indicators "
+    "with zero hallucinations and complete step-by-step auditability. "
+    "Always ground your answers in the tool results provided. "
+    "If tool results don't contain the information, say so clearly — never fabricate data."
+)
 
 
 class GlassBoxAgent:
@@ -20,10 +30,12 @@ class GlassBoxAgent:
         tracer: Optional[Tracer] = None,
         context_engine: Optional[ContextEngine] = None,
         tool_registry: Optional[ToolRegistry] = None,
+        llm: Optional[LLMClient] = None,
     ):
         self.tracer = tracer or global_tracer
         self.context_engine = context_engine or global_context_engine
         self.tools = tool_registry or global_tools
+        self.llm = llm or global_llm
 
     def execute_workflow(
         self,
@@ -34,35 +46,36 @@ class GlassBoxAgent:
         simulate_failure_mode: Optional[str] = None,  # "bloat" or "schema_error"
     ) -> Dict[str, Any]:
         """
-        Runs an end-to-end multi-step agent workflow with complete tracing and context governance.
+        Runs an end-to-end multi-step agent workflow with real Gemini LLM calls,
+        complete tracing, and context governance.
         """
-        sys_prompt = system_prompt or (
-            "You are GlassBox Financial & Due Diligence Copilot. "
-            "You investigate corporate financial metrics, acquisitions, and performance indicators "
-            "with zero hallucinations and complete step-by-step auditability."
-        )
+        sys_prompt = system_prompt or SYSTEM_PROMPT
         memory = living_memory.copy() if living_memory else {
             "target_entity": "TECHNOVA CORP",
             "fiscal_year": 2024,
             "research_phase": "DUE_DILIGENCE_INITIALIZATION"
         }
 
-        # Step 1: Planning & Intent Parsing
+        # =====================================================================
+        # STEP 1: PLANNING — Real Gemini call to generate execution plan
+        # =====================================================================
         t0 = time.time()
         drift_score, drift_action = self.context_engine.check_context_drift(
             initial_goal="Analyze TechNova 2024 financials and CloudScale acquisition",
             current_query=user_objective,
         )
 
-        plan_prompt = f"Objective: {user_objective}\nLiving Memory: {memory}\nGoal: Synthesize full profile."
-        plan_response = (
-            "EXECUTION PLAN:\n"
-            "1. Query internal financial database for TechNova FY2024 revenue, EBITDA, and free cash flow.\n"
-            "2. Retrieve SEC EDGAR filings regarding the CloudScale Labs acquisition deal.\n"
-            "3. Compute YoY growth variance using metric calculator.\n"
-            "4. Synthesize audited executive briefing."
+        plan_prompt = (
+            f"You are an AI planning agent. Given the user's objective, create a concise numbered execution plan.\n\n"
+            f"User Objective: {user_objective}\n"
+            f"Living Memory State: {json.dumps(memory)}\n"
+            f"Available Tools: financial_database_query, web_search_rag, metric_calculator\n\n"
+            f"Generate a 3-4 step execution plan. Be concise — max 4 lines."
         )
-        latency_1 = (time.time() - t0) * 1000 + 140
+
+        plan_result = self.llm.generate(prompt=plan_prompt, system_instruction=sys_prompt, max_output_tokens=256)
+        plan_response = plan_result["text"]
+        latency_1 = (time.time() - t0) * 1000
 
         breakdown_1 = self.context_engine.analyze_context(
             system_prompt=sys_prompt,
@@ -74,61 +87,71 @@ class GlassBoxAgent:
         self.tracer.record_step(
             session_id=session_id,
             step_type="PLAN",
-            title="Step 1: Strategic Planning & Drift Analysis",
-            description=f"Parsed user objective. Context Drift Score: {drift_score} ({drift_action})",
+            title="Strategic Planning & Drift Analysis",
+            description=f"Parsed user objective via Gemini. Context Drift Score: {drift_score} ({drift_action})",
             status=StepStatus.SUCCESS,
             raw_prompt=plan_prompt,
             raw_response=plan_response,
             context_breakdown=breakdown_1,
             latency_ms=latency_1,
             living_memory=memory,
+            prompt_tokens_override=plan_result.get("prompt_tokens"),
+            completion_tokens_override=plan_result.get("completion_tokens"),
         )
 
-        # Step 2: Tool Execution (Financial DB + SEC Web Search)
+        # =====================================================================
+        # STEP 2: TOOL EXECUTION — Real tools + Gemini extracts key facts
+        # =====================================================================
         t0 = time.time()
         tool_records = []
         tool_outputs = []
 
-        # Call Tool 1: Financial DB
-        fin_args = {"ticker": "TECHNOVA", "year": 2024}
-        fin_res = self.tools.execute("financial_database_query", fin_args)
-        fin_raw_str = json.dumps(fin_res)
-        tool_records.append(
-            ToolCallRecord(
-                tool_name="financial_database_query",
-                tool_args=fin_args,
-                raw_output=fin_res,
-                distilled_output="TechNova 2024 Revenue: $4.82B (+28.4% YoY), EBITDA Margin: 31.2%, Free Cash Flow: $1.15B",
-                raw_tokens=estimate_tokens(fin_raw_str),
-                distilled_tokens=estimate_tokens("TechNova 2024 Revenue: $4.82B..."),
-                latency_ms=120.5,
-                status="OK",
-            )
-        )
-        tool_outputs.append({"tool_name": "financial_database_query", "output": fin_res})
+        # Determine which tools to call based on the objective
+        tools_to_call = self._decide_tools(user_objective)
 
-        # Call Tool 2: Web Search RAG
-        rag_args = {"query": "technova acquisition cloudscale labs"}
-        rag_res = self.tools.execute("web_search_rag", rag_args)
-        rag_raw_str = json.dumps(rag_res)
-        tool_records.append(
-            ToolCallRecord(
-                tool_name="web_search_rag",
-                tool_args=rag_args,
-                raw_output=rag_res,
-                distilled_output="Acquiring CloudScale Labs for $420M cash/stock. Expected closing Q1 2025.",
-                raw_tokens=estimate_tokens(rag_raw_str),
-                distilled_tokens=estimate_tokens("Acquiring CloudScale Labs for $420M..."),
-                latency_ms=210.0,
-                status="OK",
-            )
-        )
-        tool_outputs.append({"tool_name": "web_search_rag", "output": rag_res})
+        for tool_name, tool_args in tools_to_call:
+            tool_res = self.tools.execute(tool_name, tool_args)
+            raw_str = json.dumps(tool_res)
+            raw_tokens = estimate_tokens(raw_str)
 
-        # Update Living Memory with extracted facts
-        memory["technova_2024_rev"] = "$4.82B"
-        memory["technova_yoy_growth"] = "+28.4%"
-        memory["acquisition_target"] = "CloudScale Labs ($420M)"
+            # Use Gemini to distill the tool output into a compact summary
+            distill_prompt = f"Distill this tool output into one concise sentence of key facts:\n{raw_str[:1500]}"
+            distill_result = self.llm.generate(prompt=distill_prompt, max_output_tokens=100)
+            distilled = distill_result["text"].strip()
+
+            tool_records.append(
+                ToolCallRecord(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    raw_output=tool_res,
+                    distilled_output=distilled,
+                    raw_tokens=raw_tokens,
+                    distilled_tokens=estimate_tokens(distilled),
+                    latency_ms=120.0,
+                    status="OK",
+                )
+            )
+            tool_outputs.append({"tool_name": tool_name, "output": tool_res})
+
+        # Use Gemini to extract key facts into living memory
+        memory_prompt = (
+            f"From these tool results, extract 3-5 key factual data points as key:value pairs.\n"
+            f"Tools: {json.dumps([{'tool': t.tool_name, 'output': t.distilled_output} for t in tool_records])}\n"
+            f"Return ONLY a JSON object with string keys and string values. No markdown, no explanation."
+        )
+        memory_result = self.llm.generate(prompt=memory_prompt, max_output_tokens=200)
+        try:
+            # Try to parse LLM-extracted facts
+            extracted_text = memory_result["text"].strip()
+            # Handle markdown code blocks
+            if extracted_text.startswith("```"):
+                extracted_text = extracted_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            extracted_facts = json.loads(extracted_text)
+            if isinstance(extracted_facts, dict):
+                memory.update(extracted_facts)
+        except (json.JSONDecodeError, ValueError):
+            # Fallback: manual extraction
+            memory["last_query"] = user_objective[:80]
 
         breakdown_2 = self.context_engine.analyze_context(
             system_prompt=sys_prompt,
@@ -137,12 +160,12 @@ class GlassBoxAgent:
             conversation_turns=[{"role": "user", "content": user_objective}],
         )
 
-        latency_2 = (time.time() - t0) * 1000 + 330
+        latency_2 = (time.time() - t0) * 1000
         self.tracer.record_step(
             session_id=session_id,
             step_type="TOOL_EXECUTION",
-            title="Step 2: Multi-Tool Intelligence Gathering",
-            description="Executed SEC EDGAR search and financial database query. Extracted key metrics to living memory.",
+            title="Multi-Tool Intelligence Gathering",
+            description=f"Executed {len(tools_to_call)} tools. Gemini extracted key facts to living memory.",
             status=StepStatus.SUCCESS,
             tool_calls=tool_records,
             context_breakdown=breakdown_2,
@@ -150,15 +173,15 @@ class GlassBoxAgent:
             living_memory=memory,
         )
 
-        # Step 3: Handle Failure Simulation OR Failure Demonstration (Rule 2)
+        # =====================================================================
+        # STEP 3: FAILURE SIMULATION (if requested)
+        # =====================================================================
         if simulate_failure_mode == "bloat":
-            # Real Failure Case 1: Payload Bloat Overflow Intercept & Autopsy
             t0 = time.time()
             bloat_res = self.tools.execute("unreliable_legacy_system", {"mode": "overflow"})
             raw_payload_text = str(bloat_res.get("payload", ""))
             raw_bloat_tokens = estimate_tokens(raw_payload_text)
 
-            # Context Engine detects budget violation attempt!
             autopsy = self.tracer.create_failure_autopsy(
                 failure_id="AUTOPSY_BLOAT_001",
                 step_number=3,
@@ -188,17 +211,16 @@ class GlassBoxAgent:
                 status="INTERCEPTED_AND_DISTILLED",
             )
 
-            # Record failure & heal
             breakdown_3 = breakdown_2.model_copy()
             breakdown_3.pruned_tokens += raw_bloat_tokens - 45
             breakdown_3.evicted_tool_payload_tokens += raw_bloat_tokens - 45
 
-            latency_3 = (time.time() - t0) * 1000 + 200
+            latency_3 = (time.time() - t0) * 1000
             self.tracer.record_step(
                 session_id=session_id,
                 step_type="FAILURE_RECOVERY",
-                title="Step 3: [AUTONOMOUS RECOVERY] Context Overflow Intercept & Distillation",
-                description="Caught 4,200-token payload overflow attempt. Distilled to 45 tokens; pipeline protected.",
+                title="[AUTONOMOUS RECOVERY] Context Overflow Intercept & Distillation",
+                description=f"Caught {raw_bloat_tokens}-token payload overflow attempt. Distilled to 45 tokens; pipeline protected.",
                 status=StepStatus.HEALED,
                 tool_calls=[healed_tool_record],
                 context_breakdown=breakdown_3,
@@ -208,12 +230,10 @@ class GlassBoxAgent:
             )
 
         elif simulate_failure_mode == "schema_error":
-            # Real Failure Case 2: Hallucinated Tool Argument Intercept & Self-Correction
             t0 = time.time()
             bad_args = {"mode": "invalid_hallucinated_mode_xyz"}
-            # Attempt execution
             res = self.tools.execute("unreliable_legacy_system", bad_args)
-            
+
             autopsy = self.tracer.create_failure_autopsy(
                 failure_id="AUTOPSY_SCHEMA_002",
                 step_number=3,
@@ -226,7 +246,6 @@ class GlassBoxAgent:
                 tokens_saved=120,
             )
 
-            # Self-healing execution
             good_res = self.tools.execute("unreliable_legacy_system", {"mode": "compact"})
             healed_record = ToolCallRecord(
                 tool_name="unreliable_legacy_system",
@@ -239,11 +258,11 @@ class GlassBoxAgent:
                 status="SELF_HEALED",
             )
 
-            latency_3 = (time.time() - t0) * 1000 + 190
+            latency_3 = (time.time() - t0) * 1000
             self.tracer.record_step(
                 session_id=session_id,
                 step_type="FAILURE_RECOVERY",
-                title="Step 3: [AUTONOMOUS RECOVERY] Tool Schema Hallucination Caught & Corrected",
+                title="[AUTONOMOUS RECOVERY] Tool Schema Hallucination Caught & Corrected",
                 description="Detected invalid tool parameter from model; self-healed via verified schema fallback.",
                 status=StepStatus.HEALED,
                 tool_calls=[healed_record],
@@ -253,7 +272,9 @@ class GlassBoxAgent:
                 living_memory=memory,
             )
 
-        # Step 4: Context Engineering & Stale Tool Eviction
+        # =====================================================================
+        # STEP 3/4: CONTEXT ENGINEERING — Real context optimization
+        # =====================================================================
         t0 = time.time()
         optimized_prompt, breakdown_final = self.context_engine.assemble_optimized_prompt(
             system_prompt=sys_prompt,
@@ -262,46 +283,45 @@ class GlassBoxAgent:
             conversation_turns=[{"role": "user", "content": user_objective}],
         )
 
-        latency_4 = (time.time() - t0) * 1000 + 50
+        latency_ce = (time.time() - t0) * 1000
         self.tracer.record_step(
             session_id=session_id,
             step_type="CONTEXT_MAINTENANCE",
-            title="Step 4: Context Assembly & Stale Payload Eviction",
+            title="Context Assembly & Stale Payload Eviction",
             description=f"Evicted stale raw payloads. Pruned {breakdown_final.pruned_tokens} tokens while keeping full facts.",
             status=StepStatus.SUCCESS,
             context_breakdown=breakdown_final,
-            latency_ms=latency_4,
+            latency_ms=latency_ce,
             living_memory=memory,
         )
 
-        # Step 5: Final Synthesis & Executive Briefing
+        # =====================================================================
+        # STEP 4/5: FINAL SYNTHESIS — Real Gemini call for the answer
+        # =====================================================================
         t0 = time.time()
-        final_answer = (
-            "### Executive Due Diligence Brief: TechNova Corp (FY2024)\n\n"
-            "**1. Financial Performance:**\n"
-            "- **Revenue:** $4.82B (+28.4% YoY growth from $3.75B in FY2023)\n"
-            "- **Profitability:** EBITDA Margin of 31.2% with $1.15B in Free Cash Flow\n"
-            "- **R&D Reinvestment:** $820M dedicated to cloud infrastructure & AI\n\n"
-            "**2. Strategic Acquisitions:**\n"
-            "- **CloudScale Labs Acquisition:** Definitive agreement signed for $420M (cash & stock)\n"
-            "- **Synergy Impact:** Projected to add $85M in ARR within 12 months; closing expected in Q1 2025\n\n"
-            "**3. GlassBox Audit Integrity:**\n"
-            "- All figures verified across internal databases and SEC EDGAR filings.\n"
-            "- Zero ungrounded assertions detected. Context budget maintained at <40% capacity."
-        )
 
-        latency_5 = (time.time() - t0) * 1000 + 420
+        synthesis_result = self.llm.generate(
+            prompt=optimized_prompt,
+            system_instruction=sys_prompt,
+            max_output_tokens=800,
+            temperature=0.2,
+        )
+        final_answer = synthesis_result["text"]
+
+        latency_synth = (time.time() - t0) * 1000
         self.tracer.record_step(
             session_id=session_id,
             step_type="REASONING_SYNTHESIS",
-            title="Step 5: Audited Executive Synthesis",
-            description="Generated final synthesized report grounded strictly in verified tools & memory.",
+            title="Audited Executive Synthesis",
+            description="Generated final synthesized report via Gemini, grounded in verified tools & memory.",
             status=StepStatus.SUCCESS,
             raw_prompt=optimized_prompt,
             raw_response=final_answer,
             context_breakdown=breakdown_final,
-            latency_ms=latency_5,
+            latency_ms=latency_synth,
             living_memory=memory,
+            prompt_tokens_override=synthesis_result.get("prompt_tokens"),
+            completion_tokens_override=synthesis_result.get("completion_tokens"),
         )
 
         return {
@@ -313,6 +333,32 @@ class GlassBoxAgent:
             "tokens_saved": self.tracer.get_trace(session_id).tokens_saved,
             "living_memory": memory,
         }
+
+    def _decide_tools(self, objective: str) -> list:
+        """Determines which tools to call based on the user's objective."""
+        obj_lower = objective.lower()
+        tools = []
+
+        # Always query financials for company research
+        if any(kw in obj_lower for kw in ["revenue", "financial", "due diligence", "earnings", "ebitda",
+                                            "cash flow", "investigate", "technova", "analyze"]):
+            tools.append(("financial_database_query", {"ticker": "TECHNOVA", "year": 2024}))
+
+        # Add web search for acquisitions, competitors, regulatory
+        if any(kw in obj_lower for kw in ["acquisition", "cloudscale", "deal", "sec", "filing", "competitor",
+                                            "regulatory", "due diligence", "investigate"]):
+            tools.append(("web_search_rag", {"query": "technova acquisition cloudscale labs"}))
+
+        # Add market search
+        if any(kw in obj_lower for kw in ["market share", "market", "gartner", "competitor"]):
+            tools.append(("web_search_rag", {"query": "technova market share enterprise cloud ai"}))
+
+        # Fallback: at least do a financial query and a search
+        if not tools:
+            tools.append(("financial_database_query", {"ticker": "TECHNOVA", "year": 2024}))
+            tools.append(("web_search_rag", {"query": objective[:80]}))
+
+        return tools
 
 
 # Global agent instance

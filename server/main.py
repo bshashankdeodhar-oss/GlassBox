@@ -4,6 +4,10 @@ Exposes REST and streaming APIs for traces, multi-step agent execution,
 failure autopsies, and the 20-Turn Messy Conversation Benchmark.
 """
 
+import os
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -38,7 +42,7 @@ _latest_benchmark: Optional[BenchmarkReport] = None
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str
-    model_name: Optional[str] = "gemini-1.5-pro"
+    model_name: Optional[str] = "gemini-3.6-flash"
     simulate_failure: Optional[str] = None  # "bloat" or "schema_error"
 
 
@@ -76,7 +80,7 @@ def chat_with_agent(req: ChatRequest):
             session_id=session_id,
             title=f"Chat: {req.message[:35]}...",
             scenario="interactive_chat",
-            model_name=req.model_name or "gemini-1.5-pro",
+            model_name=req.model_name or "gemini-3.6-flash",
         )
 
     result = global_agent.execute_workflow(
