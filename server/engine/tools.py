@@ -121,22 +121,48 @@ class ToolRegistry:
         def handle_unreliable_legacy(args: Dict[str, Any]):
             mode = args.get("mode", "overflow")
             if mode == "overflow":
-                # Returns an enormous 18,000 character unparsed dump that would blow context budgets
-                raw_payload = "RAW_UNSTRUCTURED_SERVER_DUMP_LOG_LINE_ITEM_" * 450 + json.dumps({
-                    "target_server": "prod-east-cluster-9",
-                    "vital_metric": "Transaction Success Rate: 99.98%",
-                    "critical_finding": "Zero memory leaks detected in production rollout",
-                    "raw_syslog_noise": ["packet_received_ack_38192" for _ in range(300)]
-                })
+                # Returns an authentic 16,000+ char raw syslog dump with embedded telemetry JSON
+                log_lines = [
+                    f"2026-09-18T10:14:{i%60:02d}.{i*7%1000:03d}Z [KERNEL-DBG] [thread-{i%8}] packet_rx_ack id={10000+i} checksum=OK latency={12.4 + (i%5)*0.3:.1f}ms buffer_alloc={4096*i} status=PASS"
+                    for i in range(180)
+                ]
+                embedded_metrics = {
+                    "cluster_id": "prod-east-cluster-9",
+                    "uptime_hours": 8760,
+                    "transaction_success_rate": "99.98%",
+                    "p99_latency_ms": 14.2,
+                    "memory_leak_detected": False,
+                    "critical_finding": "Legacy auth gateway patched; zero memory leaks detected in production rollout",
+                    "active_connections": 14205,
+                    "audit_signature": "SHA256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"
+                }
+                raw_payload = (
+                    "=== BEGIN RAW SYSTEM DIAGNOSTIC DUMP ===\n"
+                    + "\n".join(log_lines)
+                    + "\n=== EMBEDDED SUBSYSTEM METRICS TELEMETRY ===\n"
+                    + json.dumps(embedded_metrics, indent=2)
+                    + "\n=== END RAW SYSTEM DIAGNOSTIC DUMP ==="
+                )
                 return {
                     "payload": raw_payload,
                     "warning": "MASSIVE_RAW_UNPARSED_PAYLOAD",
                     "size_chars": len(raw_payload),
+                    "raw_tokens_approx": len(raw_payload) // 4,
                     "status": "UNFILTERED_RAW",
                 }
-            elif mode == "schema_error":
-                raise ValueError("INVALID_SCHEMA_PARAMETER: 'mode' expects 'overflow' or 'compact'; received unexpected payload")
-            return {"status": "OK", "message": "Legacy tool executed normally."}
+            elif mode == "compact":
+                return {
+                    "cluster_id": "prod-east-cluster-9",
+                    "transaction_success_rate": "99.98%",
+                    "p99_latency_ms": 14.2,
+                    "critical_finding": "Legacy auth gateway patched; zero memory leaks detected",
+                    "status": "VERIFIED_COMPACT"
+                }
+            else:
+                raise ValueError(
+                    f"INVALID_PARAMETER: Parameter 'mode' received unexpected value '{mode}'. "
+                    f"Permitted schema options are: ['compact', 'overflow']."
+                )
 
         self.register(
             name="unreliable_legacy_system",
@@ -144,6 +170,7 @@ class ToolRegistry:
             parameters={"mode": "string ('overflow' or 'compact')"},
             handler=handle_unreliable_legacy,
         )
+
 
 
 # Global tool registry
